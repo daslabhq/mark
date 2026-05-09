@@ -1,0 +1,43 @@
+{
+  "name": "mark",
+  "version": "0.0.1",
+  "description": "The wire format for agent goals — declare what success means, measure how far you are. Agent-first by default.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./predicate":                "./src/predicate.ts",
+    "./evaluate":                 "./src/evaluate.ts",
+    "./path":                     "./src/path.ts",
+    "./tools":                    "./src/tools.ts",
+    "./translate/automationbench": "./src/translate/automationbench.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "bun test src/"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "evaluation",
+    "grading",
+    "predicate",
+    "goal",
+    "distance",
+    "heuristic",
+    "rl",
+    "verification",
+    "benchmark"
+  ],
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  }
+}
