@@ -1,5 +1,5 @@
 {
-  "name": "mark",
+  "name": "@daslabhq/mark",
   "version": "0.0.1",
   "description": "The wire format for agent goals — declare what success means, measure how far you are. Agent-first by default.",
   "license": "MIT",
@@ -13,6 +13,17 @@
     "./path":                     "./src/path.ts",
     "./tools":                    "./src/tools.ts",
     "./translate/automationbench": "./src/translate/automationbench.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/daslabhq/mark.git"
+  },
+  "homepage": "https://github.com/daslabhq/mark#readme",
+  "bugs": {
+    "url": "https://github.com/daslabhq/mark/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "src",
