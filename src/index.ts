@@ -1,27 +1,48 @@
 /**
- * mark — wire format for agent goals.
+ * autocheck — scene-focused checks for agents.
  *
- * Declare what success means as a JSON-serializable Predicate. Evaluate it
- * against any world state to get {satisfied, gap, evidence}. Goal-distance
- * function in 300 lines.
+ * Declare what "right" looks like as a JSON-serializable CheckExpr.
+ * Evaluate it against any scene (or structured state) to get
+ * { pass, gap, why, anchor?, meta? }. Goal-distance function in ~300 lines.
  *
- * Agent-first by default: the surface is callable as MCP tools (see ./tools.ts),
- * returns are designed for context windows, predicates serialize for transport.
+ * Live re-evaluation is first-class: attach a check to a scene and your
+ * callback fires on every commit. This is the auto in autocheck.
  *
  * Usage:
- *   import { evaluate, type Predicate } from "mark";
+ *   import { runCheck, defineCheck } from "autocheck";
  *
- *   const goal: Predicate = {
- *     op: "eq",
- *     path: "salesforce.contacts[id=003002].email",
- *     value: "maria@new.com",
- *   };
- *   const result = evaluate(world, goal);
- *   // → { satisfied: true, gap: 0, evidence: "..." }
+ *   // One-shot
+ *   runCheck(scene, { op: "lte", path: "totalCost.amount", value: 60_000 });
+ *
+ *   // Named, reusable, with citation metadata
+ *   const cap = defineCheck({
+ *     id:   "warehouse-cost-cap",
+ *     expr: { op: "lte", path: "totalCost.amount", value: 60_000 },
+ *     meta: { references: ["Warehouse budget agreement, 2026-03"] },
+ *   });
+ *   runCheck(scene, cap);  // → { pass, gap, why, meta: { references: [...] } }
  */
 
-export type { Predicate, EvalResult, Path } from "./predicate.js";
-export { evaluate } from "./evaluate.js";
+export type {
+  Path,
+  CheckExpr,
+  Check,
+  CheckResult,
+  CheckMeta,
+  AnchorRef,
+  Reference,
+} from "./check.js";
+export { defineCheck, isCheck } from "./check.js";
+
+export { runCheck } from "./evaluate.js";
+
 export { resolve, lookup } from "./path.js";
-export { check_goal, gap, diagnose, subscribe, TOOL_DESCRIPTORS } from "./tools.js";
+
+export {
+  check_scene,
+  gap,
+  diagnose,
+  attachCheck,
+  TOOL_DESCRIPTORS,
+} from "./tools.js";
 export type { Subscription, Unsubscribe } from "./tools.js";

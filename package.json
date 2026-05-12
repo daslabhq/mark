@@ -1,26 +1,26 @@
 {
-  "name": "@daslabhq/mark",
-  "version": "0.0.1",
-  "description": "The wire format for agent goals — declare what success means, measure how far you are. Agent-first by default.",
+  "name": "autocheck",
+  "version": "0.1.0",
+  "description": "Scene-focused checks for agents. Declare what 'right' looks like; get pass/gap/why back. Live-re-evaluates on every scene commit.",
   "license": "MIT",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./predicate":                "./src/predicate.ts",
-    "./evaluate":                 "./src/evaluate.ts",
-    "./path":                     "./src/path.ts",
-    "./tools":                    "./src/tools.ts",
-    "./translate/automationbench": "./src/translate/automationbench.ts"
+    ".":                            "./src/index.ts",
+    "./check":                      "./src/check.ts",
+    "./evaluate":                   "./src/evaluate.ts",
+    "./path":                       "./src/path.ts",
+    "./tools":                      "./src/tools.ts",
+    "./translate/automationbench":  "./src/translate/automationbench.ts"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/daslabhq/mark.git"
+    "url": "git+https://github.com/daslabhq/autocheck.git"
   },
-  "homepage": "https://github.com/daslabhq/mark#readme",
+  "homepage": "https://github.com/daslabhq/autocheck#readme",
   "bugs": {
-    "url": "https://github.com/daslabhq/mark/issues"
+    "url": "https://github.com/daslabhq/autocheck/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -37,8 +37,9 @@
     "agent",
     "ai",
     "llm",
+    "scene",
+    "check",
     "evaluation",
-    "grading",
     "predicate",
     "goal",
     "distance",

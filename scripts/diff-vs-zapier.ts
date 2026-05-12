@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Differential test: mark vs Zapier's official AutomationBench grader.
+ * Differential test: autocheck vs Zapier's official AutomationBench grader.
  *
  * For every (assertion, world_state) in the AB corpus, evaluate with both
  * graders and compare. Report divergences classified by assertion type.
@@ -20,7 +20,7 @@
 import { spawn } from "node:child_process";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { evaluate } from "../src/evaluate.js";
+import { runCheck } from "../src/evaluate.js";
 import { translate, SUPPORTED_TYPES } from "../src/translate/automationbench.js";
 
 const HERE      = import.meta.dir;
@@ -66,10 +66,10 @@ interface Case {
   approximate?: boolean;
 }
 
-interface MarkResult {
-  satisfied: boolean;
-  gap:       number;
-  evidence?: string;
+interface AcResult {
+  pass: boolean;
+  gap:  number;
+  why?: string;
 }
 
 async function main() {
@@ -101,22 +101,22 @@ async function main() {
   console.log(`prepared ${cases.length} cases across ${SUPPORTED_TYPES.size} translatable types`);
   console.log(`skipped ${Object.values(skipped).reduce((a, b) => a + b, 0)} cases for unsupported types (${Object.keys(skipped).length} distinct)`);
 
-  // 2. Evaluate all cases in mark — fast, in-process.
-  const markResults: Map<number, MarkResult & { translated: boolean; approximate?: boolean }> = new Map();
+  // 2. Evaluate all cases in autocheck — fast, in-process.
+  const acResults: Map<number, AcResult & { translated: boolean; approximate?: boolean }> = new Map();
   for (const c of cases) {
     const t = translate(c.assertion);
     if (!t) {
-      markResults.set(c.idx, { satisfied: false, gap: 1, translated: false });
+      acResults.set(c.idx, { pass: false, gap: 1, translated: false });
       continue;
     }
     try {
-      const r = evaluate(c.world, t.predicate);
-      markResults.set(c.idx, { ...r, translated: true, approximate: t.approximate });
+      const r = runCheck(c.world, t.check);
+      acResults.set(c.idx, { pass: r.pass, gap: r.gap, why: r.why, translated: true, approximate: t.approximate });
     } catch (e) {
-      markResults.set(c.idx, { satisfied: false, gap: 1, translated: false, evidence: `mark error: ${e}` });
+      acResults.set(c.idx, { pass: false, gap: 1, translated: false, why: `autocheck error: ${e}` });
     }
   }
-  const markMs = Date.now();
+  const acMs = Date.now();
 
   // 3. Evaluate all cases in Zapier's Python grader — single subprocess.
   const zapierResults = await runZapierBatch(cases);
@@ -126,20 +126,20 @@ async function main() {
   let agree = 0, disagree = 0, errored = 0;
   const disagreeByType: Record<string, { count: number; samples: any[]; approximate: number }> = {};
   for (const c of cases) {
-    const m = markResults.get(c.idx)!;
+    const m = acResults.get(c.idx)!;
     const z = zapierResults.get(c.idx);
     if (!z || z.error) {
       errored++;
       continue;
     }
-    if (m.satisfied === z.satisfied) {
+    if (m.pass === z.satisfied) {
       agree++;
     } else {
       disagree++;
       const e = (disagreeByType[c.type] ??= { count: 0, samples: [], approximate: 0 });
       e.count++;
       if (m.approximate) e.approximate++;
-      if (e.samples.length < 3) e.samples.push({ slug: c.taskSlug, mark: m.satisfied, zapier: z.satisfied, evidence: m.evidence });
+      if (e.samples.length < 3) e.samples.push({ slug: c.taskSlug, autocheck: m.pass, zapier: z.satisfied, why: m.why });
     }
   }
 
@@ -159,12 +159,12 @@ async function main() {
     for (const [type, e] of sorted) {
       console.log(`${e.count.toString().padStart(5)}  ${type}  (${e.approximate} approximate)`);
       for (const s of e.samples) {
-        console.log(`         · ${s.slug}: mark=${s.mark} zapier=${s.zapier}  ${s.evidence ? "[" + s.evidence.slice(0, 80) + "]" : ""}`);
+        console.log(`         · ${s.slug}: autocheck=${s.autocheck} zapier=${s.zapier}  ${s.why ? "[" + s.why.slice(0, 80) + "]" : ""}`);
       }
     }
   }
   console.log("");
-  console.log(`timing: mark ${markMs - 0}ms ... zapier ${zapierMs - markMs}ms (subprocess)`);
+  console.log(`timing: autocheck ${acMs - 0}ms ... zapier ${zapierMs - acMs}ms (subprocess)`);
 }
 
 interface ZResult { satisfied: boolean | null; error?: string; }
