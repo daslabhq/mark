@@ -1,6 +1,6 @@
 {
   "name": "autocheck",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Scene-focused checks for agents. Declare what 'right' looks like; get pass/gap/why back. Live-re-evaluates on every scene commit.",
   "license": "MIT",
   "type": "module",

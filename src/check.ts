@@ -31,6 +31,8 @@ export type Path = string;
 export type CheckExpr =
   | { op: "eq";       path: Path; value: unknown }
   | { op: "neq";      path: Path; value: unknown }
+  | { op: "gte";      path: Path; value: number }
+  | { op: "lte";      path: Path; value: number }
   | { op: "contains"; path: Path; substring: string; ci?: boolean }
   | { op: "exists";   path: Path }
   | { op: "missing";  path: Path }

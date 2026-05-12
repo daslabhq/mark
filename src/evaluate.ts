@@ -51,6 +51,31 @@ function runExpr(scene: unknown, p: CheckExpr): CheckResult {
         : { pass: false, gap: 1, why: `${p.path}: expected ≠ ${json(p.value)}, got ${json(v)}` };
     }
 
+    case "gte": {
+      // gap is the actual numeric shortfall — the property that makes
+      // autocheck a heuristic in the A* sense for continuous quantities.
+      // Non-numeric values fail with gap=1.
+      const v = resolve(scene, p.path);
+      if (typeof v !== "number") {
+        return { pass: false, gap: 1, why: `${p.path}: expected number ≥ ${p.value}, got ${json(v)}` };
+      }
+      const gap = Math.max(0, p.value - v);
+      return gap === 0
+        ? { pass: true,  gap: 0,   why: `${p.path} = ${num(v)} ≥ ${num(p.value)}` }
+        : { pass: false, gap,      why: `${p.path}: expected ≥ ${num(p.value)}, got ${num(v)} (short by ${num(gap)})` };
+    }
+
+    case "lte": {
+      const v = resolve(scene, p.path);
+      if (typeof v !== "number") {
+        return { pass: false, gap: 1, why: `${p.path}: expected number ≤ ${p.value}, got ${json(v)}` };
+      }
+      const gap = Math.max(0, v - p.value);
+      return gap === 0
+        ? { pass: true,  gap: 0,   why: `${p.path} = ${num(v)} ≤ ${num(p.value)}` }
+        : { pass: false, gap,      why: `${p.path}: expected ≤ ${num(p.value)}, got ${num(v)} (over by ${num(gap)})` };
+    }
+
     case "contains": {
       // Defensive: if substring isn't a string the check is malformed.
       // Surface it instead of throwing — agents reading this can correct.
@@ -181,4 +206,10 @@ function json(v: unknown): string {
   } catch {
     return String(v);
   }
+}
+
+/** Numeric formatter — integers without decimals, floats trimmed to 2dp. */
+function num(n: number): string {
+  if (!isFinite(n)) return String(n);
+  return Number.isInteger(n) ? n.toString() : n.toFixed(2).replace(/\.?0+$/, "");
 }

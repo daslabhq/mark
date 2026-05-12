@@ -73,6 +73,59 @@ describe("eq", () => {
   });
 });
 
+describe("gte / lte — numeric inequality with continuous gap", () => {
+  test("gte: pass when value ≥ threshold", () => {
+    expect(runCheck({ x: 10 }, { op: "gte", path: "x", value: 5 }).pass).toBe(true);
+    expect(runCheck({ x: 10 }, { op: "gte", path: "x", value: 5 }).gap).toBe(0);
+  });
+
+  test("gte: gap = threshold - actual when below", () => {
+    const r = runCheck({ x: 3 }, { op: "gte", path: "x", value: 5 });
+    expect(r.pass).toBe(false);
+    expect(r.gap).toBe(2);
+    expect(r.why).toContain("short by");
+  });
+
+  test("gte: equal passes", () => {
+    expect(runCheck({ x: 5 }, { op: "gte", path: "x", value: 5 }).pass).toBe(true);
+  });
+
+  test("lte: pass when value ≤ threshold", () => {
+    expect(runCheck({ x: 5 }, { op: "lte", path: "x", value: 10 }).pass).toBe(true);
+    expect(runCheck({ x: 5 }, { op: "lte", path: "x", value: 10 }).gap).toBe(0);
+  });
+
+  test("lte: gap = actual - threshold when above", () => {
+    const r = runCheck({ x: 12 }, { op: "lte", path: "x", value: 10 });
+    expect(r.pass).toBe(false);
+    expect(r.gap).toBe(2);
+    expect(r.why).toContain("over by");
+  });
+
+  test("non-numeric value fails cleanly", () => {
+    const r = runCheck({ x: "hello" }, { op: "gte", path: "x", value: 5 });
+    expect(r.pass).toBe(false);
+    expect(r.why).toContain("expected number");
+  });
+
+  test("missing path fails", () => {
+    const r = runCheck({}, { op: "lte", path: "x", value: 10 });
+    expect(r.pass).toBe(false);
+  });
+
+  test("gte/lte gaps compose under and (sum)", () => {
+    const r = runCheck(
+      { cost: 27_000, lumens: 600 },
+      { op: "and", of: [
+        { op: "lte", path: "cost",   value: 25_000 },  // gap 2000
+        { op: "gte", path: "lumens", value: 800 },     // gap 200
+      ] },
+    );
+    expect(r.pass).toBe(false);
+    expect(r.gap).toBe(2_200);  // continuous gradient — agent can see "cut cost or boost lumens"
+  });
+});
+
 describe("contains", () => {
   test("substring match (case-sensitive)", () => {
     const c: CheckExpr = { op: "contains", path: "msg.body", substring: "Hello" };
