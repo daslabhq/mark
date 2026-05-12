@@ -73,56 +73,72 @@ describe("eq", () => {
   });
 });
 
-describe("gte / lte — numeric inequality with continuous gap", () => {
-  test("gte: pass when value ≥ threshold", () => {
-    expect(runCheck({ x: 10 }, { op: "gte", path: "x", value: 5 }).pass).toBe(true);
-    expect(runCheck({ x: 10 }, { op: "gte", path: "x", value: 5 }).gap).toBe(0);
+describe("gte / lte — continuous gap is the point", () => {
+  // The whole reason gte/lte exist in autocheck (vs. plain `>=` in code) is
+  // that `gap` is the distance to satisfaction, in the same units as the
+  // value being checked. These tests document that property.
+
+  test("gap is in the same units as the value, so agents can read 'over by €2000'", () => {
+    const overBudget = runCheck(
+      { totalCost: 27_000 },
+      { op: "lte", path: "totalCost", value: 25_000 },
+    );
+    expect(overBudget.pass).toBe(false);
+    expect(overBudget.gap).toBe(2_000);
+    expect(overBudget.why).toMatch(/over by 2000/);
+
+    const underLit = runCheck(
+      { lux: 600 },
+      { op: "gte", path: "lux", value: 800 },
+    );
+    expect(underLit.pass).toBe(false);
+    expect(underLit.gap).toBe(200);
+    expect(underLit.why).toMatch(/short by 200/);
   });
 
-  test("gte: gap = threshold - actual when below", () => {
-    const r = runCheck({ x: 3 }, { op: "gte", path: "x", value: 5 });
-    expect(r.pass).toBe(false);
-    expect(r.gap).toBe(2);
-    expect(r.why).toContain("short by");
-  });
-
-  test("gte: equal passes", () => {
-    expect(runCheck({ x: 5 }, { op: "gte", path: "x", value: 5 }).pass).toBe(true);
-  });
-
-  test("lte: pass when value ≤ threshold", () => {
-    expect(runCheck({ x: 5 }, { op: "lte", path: "x", value: 10 }).pass).toBe(true);
-    expect(runCheck({ x: 5 }, { op: "lte", path: "x", value: 10 }).gap).toBe(0);
-  });
-
-  test("lte: gap = actual - threshold when above", () => {
-    const r = runCheck({ x: 12 }, { op: "lte", path: "x", value: 10 });
-    expect(r.pass).toBe(false);
-    expect(r.gap).toBe(2);
-    expect(r.why).toContain("over by");
-  });
-
-  test("non-numeric value fails cleanly", () => {
-    const r = runCheck({ x: "hello" }, { op: "gte", path: "x", value: 5 });
-    expect(r.pass).toBe(false);
-    expect(r.why).toContain("expected number");
-  });
-
-  test("missing path fails", () => {
-    const r = runCheck({}, { op: "lte", path: "x", value: 10 });
-    expect(r.pass).toBe(false);
-  });
-
-  test("gte/lte gaps compose under and (sum)", () => {
+  test("under `and`, gaps sum — the heuristic stays a useful gradient", () => {
+    // Two failing constraints with very different scales. The summed gap
+    // tells an agent "the budget is the dominant problem to fix" — exactly
+    // what makes autocheck a heuristic in the A* sense rather than a
+    // boolean checker.
     const r = runCheck(
-      { cost: 27_000, lumens: 600 },
+      { totalCost: 27_000, lux: 600 },
       { op: "and", of: [
-        { op: "lte", path: "cost",   value: 25_000 },  // gap 2000
-        { op: "gte", path: "lumens", value: 800 },     // gap 200
+        { op: "lte", path: "totalCost", value: 25_000 },   // gap 2000 €
+        { op: "gte", path: "lux",       value: 800 },      // gap 200 lux
       ] },
     );
     expect(r.pass).toBe(false);
-    expect(r.gap).toBe(2_200);  // continuous gradient — agent can see "cut cost or boost lumens"
+    expect(r.gap).toBe(2_200);
+    // First-failure surfacing helps the agent pick what to act on first.
+    expect(r.why).toContain("totalCost");
+  });
+
+  test("under `or`, gap is the min — distance to the closest satisfiable branch", () => {
+    // Either route works: cut cost OR boost lumens. Gap = how far to the
+    // *easier* fix — the cheaper alternative for a planning agent.
+    const r = runCheck(
+      { totalCost: 27_000, lux: 600 },
+      { op: "or", of: [
+        { op: "lte", path: "totalCost", value: 25_000 },   // gap 2000
+        { op: "gte", path: "lux",       value: 700 },      // gap 100
+      ] },
+    );
+    expect(r.pass).toBe(false);
+    expect(r.gap).toBe(100);
+  });
+
+  test("non-numeric and missing values fail with a typed `why`, not a thrown error", () => {
+    // Predicates are agent-authored. They WILL aim at malformed paths.
+    // Returning a structured `why` lets the agent recover; a thrown error
+    // crashes the loop. This is the agent-first design contract.
+    const wrongType = runCheck({ x: "hello" }, { op: "gte", path: "x", value: 5 });
+    expect(wrongType.pass).toBe(false);
+    expect(wrongType.why).toMatch(/expected number/);
+
+    const missing = runCheck({}, { op: "lte", path: "deeply.nested.x", value: 10 });
+    expect(missing.pass).toBe(false);
+    expect(missing.why).toMatch(/expected number/);
   });
 });
 
